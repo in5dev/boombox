@@ -1,13 +1,14 @@
 import { shuffle } from '@in5net/limitless';
 import Speaker from 'lfd-speaker';
-import { createReadStream, readdirSync } from 'node:fs';
+import { createReadStream } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { argv, cwd, exit, stdin, stdout } from 'node:process';
 import prism from 'prism-media';
 
 const playlistPath = argv[2] || cwd();
 
-const fileNames = await readdirSync(playlistPath);
+const fileNames = await readdir(playlistPath).catch(() => [playlistPath]);
 const shuffledFileNames = shuffle(fileNames);
 let index = 0;
 
@@ -21,9 +22,11 @@ const speaker = new Speaker({
 });
 
 const filters = {
-  nightcore: `asetrate=${SAMPLE_RATE}*1.2`
+  nightcore: `asetrate=${SAMPLE_RATE}*1.2,aresample=${SAMPLE_RATE},bass=g=5`
 } as const;
 type Filter = keyof typeof filters;
+
+let ffmpegStream: prism.FFmpeg | undefined;
 
 next();
 function next() {
@@ -50,21 +53,37 @@ function next() {
     's16le'
   ];
   if (filter) args.push('-af', filters[filter]);
-  createReadStream(filePath)
-    .once('close', next)
-    .pipe(
-      new prism.FFmpeg({
-        args,
-        shell: false
-      })
-    )
-    .pipe(speaker);
+  ffmpegStream?.destroy();
+  ffmpegStream = new prism.FFmpeg({
+    args,
+    shell: false
+  });
+  createReadStream(filePath).pipe(ffmpegStream).pipe(speaker);
 }
 
 stdin.setRawMode(true);
 stdin.resume();
 stdin.setEncoding('utf8');
 stdin.on('data', (key: string) => {
-  if (key === '\u0003') exit();
-  stdout.write(key);
+  switch (key) {
+    case '\u001B\u005B\u0041':
+      // Up arrow
+      break;
+    case '\u001B\u005B\u0042':
+      // Down arrow
+      break;
+    case '\u001B\u005B\u0043':
+      // Right arrow
+      next();
+      break;
+    case '\u001B\u005B\u0044':
+      // Left arrow
+      break;
+    case '\u0003':
+      // Ctrl+C
+      exit(0);
+      break;
+    default:
+      stdout.write(key);
+  }
 });
