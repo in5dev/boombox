@@ -1,6 +1,6 @@
 import { shuffle } from '@in5net/limitless';
 import Speaker from 'lfd-speaker';
-import { createReadStream } from 'node:fs';
+import { createReadStream, ReadStream } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { argv, cwd, exit, stdin, stdout } from 'node:process';
@@ -26,17 +26,18 @@ const filters = {
 } as const;
 type Filter = keyof typeof filters;
 
+let fileStream: ReadStream | undefined;
 let ffmpegStream: prism.FFmpeg | undefined;
 
 next();
 function next() {
-  const fileName = shuffledFileNames[index++];
+  const fileName = shuffledFileNames[index];
   if (!fileName) {
     console.log('No more files');
     exit(0);
   }
   const filePath = join(playlistPath, fileName);
-  console.log(`Playing ${fileName}`);
+  console.log(`${index + 1}. ${fileName}`);
 
   const filter: Filter = 'nightcore';
 
@@ -53,12 +54,17 @@ function next() {
     's16le'
   ];
   if (filter) args.push('-af', filters[filter]);
+
+  fileStream?.destroy();
   ffmpegStream?.destroy();
+  fileStream = createReadStream(filePath);
   ffmpegStream = new prism.FFmpeg({
     args,
     shell: false
   });
-  createReadStream(filePath).pipe(ffmpegStream).pipe(speaker);
+  fileStream.pipe(ffmpegStream).pipe(speaker);
+
+  index++;
 }
 
 stdin.setRawMode(true);
@@ -78,6 +84,13 @@ stdin.on('data', (key: string) => {
       break;
     case '\u001B\u005B\u0044':
       // Left arrow
+      {
+        const newIndex = Math.max(index - 2, 0);
+        if (index === newIndex + 2) {
+          index = newIndex;
+          next();
+        }
+      }
       break;
     case '\u0003':
       // Ctrl+C
